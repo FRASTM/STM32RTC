@@ -232,18 +232,6 @@ void RTC_setPrediv(uint32_t asynch)
   prediv = asynch;
   LL_RTC_SetAsynchPrescaler(RTC, asynch);
 }
-
-/**
-  * @brief get user asynchronous prescaler value for the current clock source.
-  * @param asynch: pointer where return asynchronous prescaler value.
-  * @retval None
-  */
-void RTC_getPrediv(uint32_t *asynch)
-{
-  /* get the prescaler for a stm32F1 (value is hold by one param) */
-  prediv = LL_RTC_GetDivider(RTC);
-  *asynch = prediv;
-}
 #else
 /**
   * @brief set user (a)synchronous prescaler values.
@@ -263,7 +251,21 @@ void RTC_setPrediv(int8_t asynch, int16_t synch)
   }
   predivSync_bits = (uint8_t)_log2(predivSync) + 1;
 }
+#endif /* STM32F1xx */
 
+#if defined(STM32F1xx)
+/**
+  * @brief get user asynchronous prescaler value for the current clock source.
+  * @param asynch: pointer where return asynchronous prescaler value.
+  * @retval None
+  */
+void RTC_getPrediv(uint32_t *asynch)
+{
+  /* get the prescaler for a stm32F1 (value is hold by one param) */
+  prediv = LL_RTC_GetDivider(RTC);
+  *asynch = prediv;
+}
+#else
 /**
   * @brief get user (a)synchronous prescaler values if set else computed ones
   *        for the current clock source.
@@ -410,6 +412,16 @@ void RTC_init(hourFormat_t format, sourceClock_t source, bool reset)
 
   HAL_NVIC_SetPriority(RTC_Alarm_IRQn, RTC_IRQ_PRIO, RTC_IRQ_SUBPRIO);
   HAL_NVIC_EnableIRQ(RTC_Alarm_IRQn);
+
+#if defined(STM32F1xx)
+  /* use the One Second interrupt to store the RTC counter */
+  HAL_RTCEx_SetSecond_IT(&RtcHandle);
+  __HAL_RTC_SECOND_CLEAR_FLAG(&RtcHandle, RTC_FLAG_SEC);
+
+  /* enable the IRQ that will trig the one-second interrupt */
+  HAL_NVIC_EnableIRQ(RTC_IRQn);
+#endif /* STM32F1xx */
+
 }
 
 /**
@@ -421,6 +433,10 @@ void RTC_DeInit(void)
   HAL_RTC_DeInit(&RtcHandle);
   RTCUserCallback = NULL;
   callbackUserData = NULL;
+
+#if defined(STM32F1xx)
+  HAL_RTCEx_DeactivateSecond(&RtcHandle);
+#endif /* STM32F1xx */
 }
 
 /**
@@ -785,6 +801,26 @@ void RTC_Alarm_IRQHandler(void)
 {
   HAL_RTC_AlarmIRQHandler(&RtcHandle);
 }
+
+#if defined(STM32F1xx)
+/**
+  * @brief  Seconds interrupt callback.
+  * @param  hrtc RTC handle
+  * @retval None
+  */
+void RTC_IRQHandler(RTC_HandleTypeDef *hrtc)
+{
+  // will call the HAL_RTCEx_RTCEventCallback
+  HAL_RTCEx_RTCIRQHandler(hrtc);
+}
+
+void HAL_RTCEx_RTCEventCallback(RTC_HandleTypeDef *hrtc)
+{
+  UNUSED(hrtc);
+  /* store the new RTC counter value to the backUp reg */
+  RTC_StoreToBkUp();
+}
+#endif /* STM32F1xx */
 
 #ifdef __cplusplus
 }
