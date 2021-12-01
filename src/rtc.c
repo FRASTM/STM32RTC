@@ -35,6 +35,7 @@
   */
 
 #include "rtc.h"
+#include <string.h>
 
 #if defined(STM32_CORE_VERSION) && (STM32_CORE_VERSION  > 0x01090000) &&\
     defined(HAL_RTC_MODULE_ENABLED) && !defined(HAL_RTC_MODULE_ONLY)
@@ -206,6 +207,19 @@ static void RTC_initClock(sourceClock_t source)
 }
 
 #if defined(STM32F1xx)
+void RTC_StoreToBkUp(void)
+{
+  uint32_t TimeToStore = RTC_ReadTimeCounter(&RtcHandle);
+  uint8_t yearToStore, monthToStore, dayToStore, wdayToStore;
+
+  /* Store the time & date in the backup registers */
+  HAL_RTCEx_BKUPWrite(&RtcHandle, RTC_BKP_TIME_H, TimeToStore >> 16);
+  HAL_RTCEx_BKUPWrite(&RtcHandle, RTC_BKP_TIME_L, TimeToStore & 0xffff);
+  RTC_GetDate(&yearToStore, &monthToStore, &dayToStore, &wdayToStore);
+  HAL_RTCEx_BKUPWrite(&RtcHandle, RTC_BKP_DATE_H, (yearToStore << 8) | monthToStore );
+  HAL_RTCEx_BKUPWrite(&RtcHandle, RTC_BKP_DATE_L, (dayToStore << 8) | wdayToStore );
+}
+
 /**
   * @brief set user asynchronous prescaler value.
   * @note  use RTC_AUTO_1_SECOND to reset value
@@ -217,6 +231,18 @@ void RTC_setPrediv(uint32_t asynch)
   /* set the prescaler for a stm32F1 (value is hold by one param) */
   prediv = asynch;
   LL_RTC_SetAsynchPrescaler(RTC, asynch);
+}
+
+/**
+  * @brief get user asynchronous prescaler value for the current clock source.
+  * @param asynch: pointer where return asynchronous prescaler value.
+  * @retval None
+  */
+void RTC_getPrediv(uint32_t *asynch)
+{
+  /* get the prescaler for a stm32F1 (value is hold by one param) */
+  prediv = LL_RTC_GetDivider(RTC);
+  *asynch = prediv;
 }
 #else
 /**
@@ -237,21 +263,7 @@ void RTC_setPrediv(int8_t asynch, int16_t synch)
   }
   predivSync_bits = (uint8_t)_log2(predivSync) + 1;
 }
-#endif /* STM32F1xx */
 
-#if defined(STM32F1xx)
-/**
-  * @brief get user asynchronous prescaler value for the current clock source.
-  * @param asynch: pointer where return asynchronous prescaler value.
-  * @retval None
-  */
-void RTC_getPrediv(uint32_t *asynch)
-{
-  /* get the prescaler for a stm32F1 (value is hold by one param) */
-  prediv = LL_RTC_GetDivider(RTC);
-  *asynch = prediv;
-}
-#else
 /**
   * @brief get user (a)synchronous prescaler values if set else computed ones
   *        for the current clock source.
@@ -366,7 +378,30 @@ void RTC_init(hourFormat_t format, sourceClock_t source, bool reset)
   RtcHandle.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
 #endif /* STM32F1xx */
 
+/* Ensure backup domain is enabled before we init the RTC so we can use the backup registers for date retention on stm32f1xx baords */
+  enableBackupDomain();
+
   HAL_RTC_Init(&RtcHandle);
+
+#if defined(STM32F1xx)
+  // Copy RTC data back out of the BackUp registers
+  uint32_t BackupTime;
+
+  BackupTime = HAL_RTCEx_BKUPRead(&RtcHandle, RTC_BKP_TIME_L) & 0xFFFF;
+  BackupTime |= HAL_RTCEx_BKUPRead(&RtcHandle, RTC_BKP_TIME_H) << 16;
+  /* fill the RTC Count register */
+  RTC_WriteTimeCounter(&RtcHandle, BackupTime);
+
+  uint32_t BackupDate;
+
+  BackupDate = HAL_RTCEx_BKUPRead(&RtcHandle, RTC_BKP_DATE_L) & 0xFFFF;
+  BackupDate |= HAL_RTCEx_BKUPRead(&RtcHandle, RTC_BKP_DATE_H) << 16;
+  /* fill the RTC Date value */
+  RTC_SetDate((BackupDate  >> 24) & 0xFF, (BackupDate  >> 16) & 0xFF,
+              (BackupDate  >> 8) & 0xFF, (BackupDate) & 0xFF);
+  /* set again the time or it will revert again if we lose power before manually updating. */
+  RTC_StoreToBkUp();
+#endif /* STM32F1xx */
 
 #if defined(RTC_CR_BYPSHAD)
   /* Enable Direct Read of the calendar registers (not through Shadow) */
@@ -375,8 +410,6 @@ void RTC_init(hourFormat_t format, sourceClock_t source, bool reset)
 
   HAL_NVIC_SetPriority(RTC_Alarm_IRQn, RTC_IRQ_PRIO, RTC_IRQ_SUBPRIO);
   HAL_NVIC_EnableIRQ(RTC_Alarm_IRQn);
-  /* Ensure backup domain is enabled */
-  enableBackupDomain();
 }
 
 /**
@@ -441,6 +474,11 @@ void RTC_SetTime(uint8_t hours, uint8_t minutes, uint8_t seconds, uint32_t subSe
 
     HAL_RTC_SetTime(&RtcHandle, &RTC_TimeStruct, RTC_FORMAT_BIN);
     setBackupRegister(RTC_BKP_INDEX, RTC_BKP_VALUE);
+
+#if defined(STM32F1xx)
+    /* stm32F1 keeps the Time in the BackupRegister once it is set */
+    RTC_StoreToBkUp();
+#endif /* STM32F1xx */
   }
 }
 
@@ -458,6 +496,15 @@ void RTC_GetTime(uint8_t *hours, uint8_t *minutes, uint8_t *seconds, uint32_t *s
   RTC_TimeTypeDef RTC_TimeStruct;
 
   if ((hours != NULL) && (minutes != NULL) && (seconds != NULL)) {
+#if defined(STM32F1xx)
+    /*
+     * Store the date prior to checking the time, this may roll over to the next day
+     * as part of the time check,
+     * we need the new date details in the backup registers if it changes
+     */
+    uint8_t current_date = RtcHandle.DateToUpdate.Date;
+#endif /* STM32F1xx */
+
     HAL_RTC_GetTime(&RtcHandle, &RTC_TimeStruct, RTC_FORMAT_BIN);
     *hours = RTC_TimeStruct.Hours;
     *minutes = RTC_TimeStruct.Minutes;
@@ -480,6 +527,10 @@ void RTC_GetTime(uint8_t *hours, uint8_t *minutes, uint8_t *seconds, uint32_t *s
 #else
     UNUSED(period);
     UNUSED(subSeconds);
+    /* stm32F1 keeps the date in the backUp reg on the next second */
+    if (current_date != RtcHandle.DateToUpdate.Date) {
+      RTC_StoreToBkUp();
+    }
 #endif /* !STM32F1xx */
   }
 }
@@ -503,6 +554,10 @@ void RTC_SetDate(uint8_t year, uint8_t month, uint8_t day, uint8_t wday)
     RTC_DateStruct.WeekDay = wday;
     HAL_RTC_SetDate(&RtcHandle, &RTC_DateStruct, RTC_FORMAT_BIN);
     setBackupRegister(RTC_BKP_INDEX, RTC_BKP_VALUE);
+#if defined(STM32F1xx)
+    /* stm32F1 keeps the Date in the BackupRegister once it is set */
+    RTC_StoreToBkUp();
+#endif /* STM32F1xx */
   }
 }
 

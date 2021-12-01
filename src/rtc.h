@@ -85,6 +85,13 @@ typedef void(*voidCallbackPtr)(void *);
 #define RTC_IRQ_SUBPRIO    0
 #endif
 
+#if defined(STM32F1xx)
+/* Backup registers used to save the RTC */
+#define RTC_BKP_TIME_H RTC_BKP_DR7
+#define RTC_BKP_TIME_L (RTC_BKP_TIME_H + 1)
+#define RTC_BKP_DATE_H (RTC_BKP_TIME_H + 2)
+#define RTC_BKP_DATE_L (RTC_BKP_TIME_H + 3)
+#endif /* STM32F1xx */
 
 #define HSE_RTC_MAX 1000000U
 
@@ -162,6 +169,9 @@ void RTC_GetAlarm(uint8_t *day, uint8_t *hours, uint8_t *minutes, uint8_t *secon
 void attachAlarmCallback(voidCallbackPtr func, void *data);
 void detachAlarmCallback(void);
 
+#if defined(STM32F1xx)
+void RTC_StoreDate(void);
+#endif /* STM32F1xx */
 #ifdef __cplusplus
 }
 #endif

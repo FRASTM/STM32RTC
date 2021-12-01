@@ -73,7 +73,7 @@ void STM32RTC::begin(Hour_Format format)
     RTC_init((format == HOUR_12) ? HOUR_FORMAT_12 : HOUR_FORMAT_24,
              (_clockSource == LSE_CLOCK) ? ::LSE_CLOCK :
              (_clockSource == HSE_CLOCK) ? ::HSE_CLOCK : ::LSI_CLOCK
-#if defined(STM32_CORE_VERSION) && (STM32_CORE_VERSION  > 0x01050000)
+#if defined(STM32F1xx) || (defined(STM32_CORE_VERSION) && (STM32_CORE_VERSION  > 0x01050000))
              , _reset
 #endif
             );
