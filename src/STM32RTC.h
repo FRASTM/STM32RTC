@@ -126,13 +126,16 @@ class STM32RTC {
     STM32RTC(STM32RTC const &)        = delete;
     void operator=(STM32RTC const &)  = delete;
 
-    void begin(bool resetTime, Hour_Format format = HOUR_24, RTC_Mode mode = MODE_BCD);
+    void begin(bool resetTime, Hour_Format format = HOUR_24);
     void begin(Hour_Format format = HOUR_24);
 
     void end(void);
 
     Source_Clock getClockSource(void);
     void setClockSource(Source_Clock source);
+
+    RTC_Mode getRTCMode(void);
+    void setRTCMode(RTC_Mode mode);
 
     void enableAlarm(Alarm_Match match, Alarm name = ALARM_A);
     void disableAlarm(Alarm name = ALARM_A);
