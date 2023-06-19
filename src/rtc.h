@@ -194,6 +194,9 @@ void attachSecondsIrqCallback(voidCallbackPtr func);
 void detachSecondsIrqCallback(void);
 #endif /* ONESECOND_IRQn */
 
+hourFormat_t RTC_GetFormat(void);
+hourAM_PM_t RTC_GetPeriod(void);
+
 #if defined(STM32F1xx)
 void RTC_StoreDate(void);
 #endif

@@ -252,7 +252,7 @@ void RTC_setPrediv(int8_t asynch, int16_t synch)
 void RTC_getPrediv(uint32_t *asynch)
 {
   /* get the prescaler for a stm32F1 (value is hold by one param) */
-  prediv = LL_RTC_GetDivider(RTC);
+  prediv = LL_RTC_GetDivider(RtcHandle.Instance);
   *asynch = prediv;
 }
 #else
@@ -676,6 +676,26 @@ void RTC_GetDate(uint8_t *year, uint8_t *month, uint8_t *day, uint8_t *wday)
     *day = RTC_DateStruct.Date;
     *wday = RTC_DateStruct.WeekDay;
   }
+}
+
+/**
+  * @brief Get RTC format 12 or 24h
+  * @param None
+  * @retval HOUR_FORMAT_12 or HOUR_FORMAT_24
+  */
+hourFormat_t RTC_GetFormat(void)
+{
+  return ((LL_RTC_GetHourFormat(RtcHandle.Instance) == LL_RTC_HOURFORMAT_24HOUR) ? HOUR_FORMAT_24 : HOUR_FORMAT_12);
+}
+
+/**
+  * @brief Get RTC period AM or PM
+  * @param None
+  * @retval HOUR_AM or HOUR_PM
+  */
+hourAM_PM_t RTC_GetPeriod(void)
+{
+  return ((LL_RTC_TIME_GetFormat(RtcHandle.Instance) == LL_RTC_TIME_FORMAT_PM) ? HOUR_PM : HOUR_AM);
 }
 
 /**
