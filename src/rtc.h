@@ -42,6 +42,7 @@
 #include "stm32_def.h"
 #include "backup.h"
 #include "clock.h"
+#include "stm32yyxx_ll_system.h"
 
 #if defined(HAL_RTC_MODULE_ENABLED) && !defined(HAL_RTC_MODULE_ONLY)
 
