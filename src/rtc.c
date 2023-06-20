@@ -504,6 +504,9 @@ bool RTC_init(hourFormat_t format, sourceClock_t source, bool reset)
   HAL_RTCEx_EnableBypassShadow(&RtcHandle);
 #endif
 
+
+LL_DBGMCU_APB1_GRP1_FreezePeriph(LL_DBGMCU_APB1_GRP1_RTC_STOP);
+
   return reinit;
 }
 
