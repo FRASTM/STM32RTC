@@ -77,6 +77,8 @@ static int16_t predivSync = -1;
 static uint32_t prediv = RTC_AUTO_1_SECOND;
 #endif /* !STM32F1xx */
 
+static uint32_t fqce_apre;
+
 static hourFormat_t initFormat = HOUR_FORMAT_12;
 static binaryMode_t initMode = MODE_BINARY_NONE;
 
@@ -324,6 +326,8 @@ static void RTC_computePrediv(int8_t *asynch, int16_t *synch)
     Error_Handler();
   }
   *synch = (int16_t)predivS;
+
+  fqce_apre = clkVal / (*asynch + 1);
 }
 #endif /* !STM32F1xx */
 
@@ -480,13 +484,14 @@ bool RTC_init(hourFormat_t format, binaryMode_t mode, sourceClock_t source, bool
       // In case of RTC source clock change, Backup Domain is reset by RTC_initClock()
       // Save current config before call to RTC_initClock()
       RTC_GetDate(&years, &month, &days, &weekDay);
-      RTC_GetTime(mode, &hours, &minutes, &seconds, &subSeconds, &period);
+      RTC_GetTime(&hours, &minutes, &seconds, &subSeconds, &period);
+
       if (isAlarmASet) {
-        RTC_GetAlarm(mode, ALARM_A, &alarmDay, &alarmHours, &alarmMinutes, &alarmSeconds, &alarmSubseconds, &alarmPeriod, &alarmMask);
+        RTC_GetAlarm(ALARM_A, &alarmDay, &alarmHours, &alarmMinutes, &alarmSeconds, &alarmSubseconds, &alarmPeriod, &alarmMask);
       }
 #ifdef RTC_ALARM_B
       if (isAlarmBSet) {
-        RTC_GetAlarm(mode, ALARM_B, &alarmBDay, &alarmBHours, &alarmBMinutes, &alarmBSeconds, &alarmBSubseconds, &alarmBPeriod, &alarmBMask);
+        RTC_GetAlarm(ALARM_B, &alarmBDay, &alarmBHours, &alarmBMinutes, &alarmBSeconds, &alarmBSubseconds, &alarmBPeriod, &alarmBMask);
       }
 #endif
       // Init RTC clock
@@ -583,14 +588,14 @@ bool RTC_IsConfigured(void)
   * @param hours: 0-12 or 0-23. Depends on the format used.
   * @param minutes: 0-59
   * @param seconds: 0-59
-  * @param subSeconds: 0-999
+  * @param subSeconds: 0-999 (not used)
   * @param period: select HOUR_AM or HOUR_PM period in case RTC is set in 12 hours mode. Else ignored.
   * @retval None
   */
 void RTC_SetTime(uint8_t hours, uint8_t minutes, uint8_t seconds, uint32_t subSeconds, hourAM_PM_t period)
 {
   RTC_TimeTypeDef RTC_TimeStruct;
-  UNUSED(subSeconds);
+  UNUSED(subSeconds); /* not used (read-only register) */
   /* Ignore time AM PM configuration if in 24 hours format */
   if (initFormat == HOUR_FORMAT_24) {
     period = HOUR_AM;
@@ -656,7 +661,16 @@ void RTC_GetTime(uint8_t *hours, uint8_t *minutes, uint8_t *seconds, uint32_t *s
     }
 #if defined(RTC_SSR_SS)
     if (subSeconds != NULL) {
-      *subSeconds = ((predivSync - RTC_TimeStruct.SubSeconds) * 1000) / (predivSync + 1);
+      if (initMode == MODE_BINARY_MIX) {
+        /* The subsecond is the free-running downcounter, to be converted in milliseconds */
+        *subSeconds = (((UINT32_MAX - RTC_TimeStruct.SubSeconds + 1) & UINT32_MAX)
+                       * 1000) / fqce_apre; /* give one more to compensate the 3.9ms uncertainty */
+        *subSeconds = *subSeconds % 1000; /* nb of milliseconds */
+        /* predivAsync is 0x7F with LSE clock source */
+      } else {
+        /* the subsecond register value is converted in millisec */
+        *subSeconds = ((predivSync - RTC_TimeStruct.SubSeconds) * 1000) / (predivSync + 1);
+      }
     }
 #else
     UNUSED(subSeconds);
@@ -724,7 +738,7 @@ void RTC_GetDate(uint8_t *year, uint8_t *month, uint8_t *day, uint8_t *wday)
   * @param hours: 0-12 or 0-23 depends on the hours mode.
   * @param minutes: 0-59
   * @param seconds: 0-59
-  * @param subSeconds: 0-999
+  * @param subSeconds: 0-999 milliseconds
   * @param period: HOUR_AM or HOUR_PM if in 12 hours mode else ignored.
   * @param mask: configure alarm behavior using alarmMask_t combination.
   *              See AN4579 Table 5 for possible values.
@@ -759,7 +773,12 @@ void RTC_StartAlarm(alarm_t name, uint8_t day, uint8_t hours, uint8_t minutes, u
       {
         RTC_AlarmStructure.AlarmSubSecondMask = predivSync_bits << RTC_ALRMASSR_MASKSS_Pos;
       }
-      RTC_AlarmStructure.AlarmTime.SubSeconds = predivSync - (subSeconds * (predivSync + 1)) / 1000;
+      if (initMode == MODE_BINARY_MIX) {
+        /* the subsecond is the millisecond to be converted in a subsecond downcounter value */
+        RTC_AlarmStructure.AlarmTime.SubSeconds = UINT32_MAX - ((subSeconds * fqce_apre) / 1000 + 1);
+      } else {
+        RTC_AlarmStructure.AlarmTime.SubSeconds = predivSync - (subSeconds * (predivSync + 1)) / 1000;
+      }
     } else {
       RTC_AlarmStructure.AlarmSubSecondMask = RTC_ALARMSUBSECONDMASK_ALL;
     }
@@ -815,23 +834,21 @@ void RTC_StartAlarm(alarm_t name, uint8_t day, uint8_t hours, uint8_t minutes, u
 #if defined(RTC_ALRMASSR_SSCLR)
       RTC_AlarmStructure.BinaryAutoClr = RTC_ALARMSUBSECONDBIN_AUTOCLR_NO;
 #endif /* RTC_ALRMASSR_SSCLR */
-      RTC_AlarmStructure.AlarmMask = RTC_ALARMMASK_NONE;
+      RTC_AlarmStructure.AlarmMask = RTC_ALARMMASK_ALL;
 
 #ifdef RTC_ALARM_B
       if (name == ALARM_B)
       {
         /* Expecting RTC_ALARMSUBSECONDBINMASK_NONE for the subsecond mask on ALARM B */
-        RTC_AlarmStructure.AlarmMask = RTC_ALARMMASK_ALL;
         RTC_AlarmStructure.AlarmSubSecondMask = mask << RTC_ALRMBSSR_MASKSS_Pos;
       } else
 #endif
       {
         /* Expecting RTC_ALARMSUBSECONDBINMASK_NONE for the subsecond mask on ALARM A */
-        RTC_AlarmStructure.AlarmMask = RTC_ALARMMASK_ALL;
         RTC_AlarmStructure.AlarmSubSecondMask = mask << RTC_ALRMASSR_MASKSS_Pos;
       }
-      /* Special case for ALARM B configuration for stm32WL Lorawan */
-      RTC_AlarmStructure.AlarmTime.SubSeconds = subSeconds;
+      /* The subsecond in ms is converted in ticks unit 1 tick is 1000 / fqce_apre */
+      RTC_AlarmStructure.AlarmTime.SubSeconds = UINT32_MAX - (subSeconds * fqce_apre) / 1000;
     }
 
 #else
@@ -927,7 +944,15 @@ void RTC_GetAlarm(alarm_t name, uint8_t *day, uint8_t *hours, uint8_t *minutes, 
     }
 #if defined(RTC_SSR_SS)
     if (subSeconds != NULL) {
-      *subSeconds = ((predivSync - RTC_AlarmStructure.AlarmTime.SubSeconds) * 1000) / (predivSync + 1);
+      if (initMode == MODE_BINARY_MIX) {
+        /*
+         * The subsecond is the bit SS[14:0] of the ALARM SSR register (not ALARMxINR)
+         * to be converted in milliseconds
+         */
+        *subSeconds = (((0x7fff - RTC_AlarmStructure.AlarmTime.SubSeconds + 1) & 0x7fff) * 1000) / fqce_apre;
+      } else {
+        *subSeconds = ((predivSync - RTC_AlarmStructure.AlarmTime.SubSeconds) * 1000) / (predivSync + 1);
+      }
     }
 #else
     UNUSED(subSeconds);
