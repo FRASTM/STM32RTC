@@ -710,7 +710,7 @@ void RTC_GetTime(uint8_t *hours, uint8_t *minutes, uint8_t *seconds, uint32_t *s
     }
 #if defined(RTC_SSR_SS)
     if (subSeconds != NULL) {
-      if (initMode == MODE_BINARY_MIX) {
+      if ((initMode == MODE_BINARY_MIX) || (initMode == MODE_BINARY_ONLY)) {
         /* The subsecond is the free-running downcounter, to be converted in milliseconds */
         *subSeconds = (((UINT32_MAX - RTC_TimeStruct.SubSeconds + 1) & UINT32_MAX)
                        * 1000) / fqce_apre; /* give one more to compensate the 3.9ms uncertainty */
@@ -822,7 +822,8 @@ void RTC_StartAlarm(alarm_t name, uint8_t day, uint8_t hours, uint8_t minutes, u
       {
         RTC_AlarmStructure.AlarmSubSecondMask = predivSync_bits << RTC_ALRMASSR_MASKSS_Pos;
       }
-      if (initMode == MODE_BINARY_MIX) {
+      /* in MIX or BCD Mode, the subsecond param is a nb of milliseconds */
+      if ((initMode == MODE_BINARY_MIX) || (initMode == MODE_BINARY_NONE)) {
         /* the subsecond is the millisecond to be converted in a subsecond downcounter value */
         RTC_AlarmStructure.AlarmTime.SubSeconds = UINT32_MAX - ((subSeconds * fqce_apre) / 1000 + 1);
       } else {
@@ -873,7 +874,7 @@ void RTC_StartAlarm(alarm_t name, uint8_t day, uint8_t hours, uint8_t minutes, u
     HAL_NVIC_SetPriority(RTC_Alarm_IRQn, RTC_IRQ_PRIO, RTC_IRQ_SUBPRIO);
     HAL_NVIC_EnableIRQ(RTC_Alarm_IRQn);
 #if defined(RTC_ICSR_BIN)
-  } else if (RtcHandle.Init.BinMode != RTC_BINARY_NONE) {
+  } else if ((initMode == MODE_BINARY_MIX) || (initMode == MODE_BINARY_ONLY)) {
     /* We have an SubSecond alarm to set in RTC_BINARY_MIX or RTC_BINARY_ONLY mode */
 #else
   } else {
@@ -886,8 +887,7 @@ void RTC_StartAlarm(alarm_t name, uint8_t day, uint8_t hours, uint8_t minutes, u
       RTC_AlarmStructure.AlarmMask = RTC_ALARMMASK_ALL;
 
 #ifdef RTC_ALARM_B
-      if (name == ALARM_B)
-      {
+      if (name == ALARM_B) {
         /* Expecting RTC_ALARMSUBSECONDBINMASK_NONE for the subsecond mask on ALARM B */
         RTC_AlarmStructure.AlarmSubSecondMask = mask << RTC_ALRMBSSR_MASKSS_Pos;
       } else
@@ -907,7 +907,39 @@ void RTC_StartAlarm(alarm_t name, uint8_t day, uint8_t hours, uint8_t minutes, u
     HAL_RTC_SetAlarm_IT(&RtcHandle, &RTC_AlarmStructure, RTC_FORMAT_BIN);
     HAL_NVIC_SetPriority(RTC_Alarm_IRQn, RTC_IRQ_PRIO, RTC_IRQ_SUBPRIO);
     HAL_NVIC_EnableIRQ(RTC_Alarm_IRQn);
+#if defined(RTC_ICSR_BIN)
+  } else {
+    /* We have an SubSecond alarm to set in BCD (RTC_BINARY_NONE) mode */
+#if defined(RTC_SSR_SS)
+    {
+#if defined(RTC_ALRMASSR_SSCLR)
+      RTC_AlarmStructure.BinaryAutoClr = RTC_ALARMSUBSECONDBIN_AUTOCLR_NO;
+#endif /* RTC_ALRMASSR_SSCLR */
+      RTC_AlarmStructure.AlarmMask = RTC_ALARMMASK_ALL;
+
+#ifdef RTC_ALARM_B
+      if (name == ALARM_B) {
+        /* Expecting RTC_ALARMSUBSECONDBINMASK_NONE for the subsecond mask on ALARM B */
+        RTC_AlarmStructure.AlarmSubSecondMask = mask << RTC_ALRMBSSR_MASKSS_Pos;
+      } else
+#endif
+      {
+        /* Expecting RTC_ALARMSUBSECONDBINMASK_NONE for the subsecond mask on ALARM A */
+        RTC_AlarmStructure.AlarmSubSecondMask = mask << RTC_ALRMASSR_MASKSS_Pos;
+      }
+      RTC_AlarmStructure.AlarmTime.SubSeconds = predivSync - (subSeconds * (predivSync + 1)) / 1000;
+    }
+
+#else
+    UNUSED(subSeconds);
+#endif /* RTC_SSR_SS */
+    /* Set RTC_Alarm */
+    HAL_RTC_SetAlarm_IT(&RtcHandle, &RTC_AlarmStructure, RTC_FORMAT_BIN);
+    HAL_NVIC_SetPriority(RTC_Alarm_IRQn, RTC_IRQ_PRIO, RTC_IRQ_SUBPRIO);
+    HAL_NVIC_EnableIRQ(RTC_Alarm_IRQn);
   }
+#endif /* RTC_ICSR_BIN */
+
 }
 
 /**
@@ -993,7 +1025,7 @@ void RTC_GetAlarm(alarm_t name, uint8_t *day, uint8_t *hours, uint8_t *minutes, 
     }
 #if defined(RTC_SSR_SS)
     if (subSeconds != NULL) {
-      if (initMode == MODE_BINARY_MIX) {
+      if ((initMode == MODE_BINARY_MIX) || (initMode == MODE_BINARY_ONLY)) {
         /*
          * The subsecond is the bit SS[14:0] of the ALARM SSR register (not ALARMxINR)
          * to be converted in milliseconds
