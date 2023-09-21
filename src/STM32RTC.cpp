@@ -154,7 +154,12 @@ STM32RTC::Binary_Mode STM32RTC::getBinaryMode(void)
   */
 void STM32RTC::setBinaryMode(Binary_Mode mode)
 {
+#if defined(RTC_BINARY_NONE)
   _mode = mode;
+#else
+#warning "only BCD mode is supported"
+  _mode = MODE_BCD;
+#endif /* RTC_BINARY_NONE */
 }
 
 /**
@@ -340,7 +345,7 @@ void STM32RTC::standbyMode(void)
 
 /**
   * @brief  get RTC subseconds.
-  * @retval return the current subseconds from the RTC.
+  * @retval return the current milliseconds from the RTC.
   */
 uint32_t STM32RTC::getSubSeconds(void)
 {
@@ -388,7 +393,7 @@ uint8_t STM32RTC::getHours(AM_PM *period)
   * @param  hours: pointer to the current hours
   * @param  minutes: pointer to the current minutes
   * @param  seconds: pointer to the current seconds
-  * @param  subSeconds: pointer to the current subSeconds
+  * @param  subSeconds: pointer to the current subSeconds (in milliseconds)
   * @param  period: optional (default: nullptr)
   *         pointer to the current hour period set in the RTC: AM or PM
   * @retval none
@@ -835,18 +840,29 @@ void STM32RTC::setDate(uint8_t weekDay, uint8_t day, uint8_t month, uint8_t year
 
 /**
   * @brief  set RTC alarm subseconds.
-  * @param  subseconds: 0-999 (in ms)
+  * @param  subseconds: 0-999 (in ms) or 32bit nb of milliseconds in BIN mode
   * @param name: optional (default: ALARM_A)
   *        ALARM_A or ALARM_B if exists
   * @retval none
   */
 void STM32RTC::setAlarmSubSeconds(uint32_t subSeconds, Alarm name)
 {
-  if (subSeconds < 1000) {
+  if (_mode == MODE_BIN) {
 #ifdef RTC_ALARM_B
     if (name == ALARM_B) {
       _alarmBSubSeconds = subSeconds;
+    } else
+#else
+    UNUSED(name);
+#endif
+    {
+      _alarmSubSeconds = subSeconds;
     }
+  } else if (subSeconds < 1000) {
+#ifdef RTC_ALARM_B
+    if (name == ALARM_B) {
+      _alarmBSubSeconds = subSeconds;
+    } else
 #else
     UNUSED(name);
 #endif
@@ -869,7 +885,7 @@ void STM32RTC::setAlarmSeconds(uint8_t seconds, Alarm name)
 #ifdef RTC_ALARM_B
     if (name == ALARM_B) {
       _alarmBSeconds = seconds;
-    }
+    } else
 #else
     UNUSED(name);
 #endif
@@ -892,7 +908,7 @@ void STM32RTC::setAlarmMinutes(uint8_t minutes, Alarm name)
 #ifdef RTC_ALARM_B
     if (name == ALARM_B) {
       _alarmBMinutes = minutes;
-    }
+    } else
 #else
     UNUSED(name);
 #endif
@@ -931,7 +947,7 @@ void STM32RTC::setAlarmHours(uint8_t hours, AM_PM period, Alarm name)
       if (_format == HOUR_12) {
         _alarmBPeriod = period;
       }
-    }
+    } else
 #else
     UNUSED(name);
 #endif
@@ -942,6 +958,18 @@ void STM32RTC::setAlarmHours(uint8_t hours, AM_PM period, Alarm name)
       }
     }
   }
+}
+
+
+/**
+  * @brief  set RTC alarm time.
+  * @param  subSeconds: 0-999 ms or 32bit nb of milliseconds in BIN mode
+  * @param  name: ALARM_A or ALARM_B if exists
+  * @retval none
+  */
+void STM32RTC::setAlarmTime(uint32_t subSeconds, Alarm name)
+{
+  setAlarmTime(0, 0, 0, subSeconds, AM, name);
 }
 
 /**
@@ -962,7 +990,7 @@ void STM32RTC::setAlarmTime(uint8_t hours, uint8_t minutes, uint8_t seconds, Ala
   * @param  hours: 0-23
   * @param  minutes: 0-59
   * @param  seconds: 0-59
-  * @param  subSeconds: 0-999
+  * @param  subSeconds: 0-999 ms or 32bit nb of milliseconds in BIN mode
   * @param  name: ALARM_A or ALARM_B if exists
   * @retval none
   */
@@ -973,10 +1001,10 @@ void STM32RTC::setAlarmTime(uint8_t hours, uint8_t minutes, uint8_t seconds, uin
 
 /**
   * @brief  set RTC alarm time.
-  * @param  hours: 0-23
-  * @param  minutes: 0-59
-  * @param  seconds: 0-59
-  * @param  subSeconds: 0-999 (optional)
+  * @param  hours: 0-23 (not used in BIN mode)
+  * @param  minutes: 0-59 (not used in BIN mode)
+  * @param  seconds: 0-59 (not used in BIN mode)
+  * @param  subSeconds: 0-999 ms (optional) or 32bit nb of milliseconds in BIN mode
   * @param  period: hour format AM or PM (optional)
   * @param  name: optional (default: ALARM_A)
   *         ALARM_A or ALARM_B if exists

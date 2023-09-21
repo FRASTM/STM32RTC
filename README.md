@@ -156,6 +156,30 @@ It is possible to use it thanks all alarm API with an extra argument:
 Refer to the Arduino RTC documentation for the other functions
 http://arduino.cc/en/Reference/RTC
 
+### Since STM32RTC version higher than 1.3.7
+_binary and mix modes_
+
+Some STM32 RTC have a binary mode with 32-bit free-running counter
+in addition to their BCD mode for calendar (for example stm32wl55).
+Combined with BCD this is the MIX mode. Only using the binary counter is the BIN mode.
+Three RTC functionnal modes are available:
+  - `STM32RTC::MODE_BCD`
+  - `STM32RTC::MODE_MIX`
+  - `STM32RTC::MODE_BIN`
+
+```C++
+    Binary_Mode getBinaryMode(void);
+    void setBinaryMode(Binary_Mode mode);
+```
+
+Any API using the Subsecond parameter is expressed in miliseconds
+whatever the RTC input clock. This parameter is [0..999] in MIX or BCD mode
+and [0..0xFFFFFFFF] in BIN mode. In this configuartion, time and date registers
+are not used by the RTC.
+
+Refer to the Arduino RTC documentation for the other functions
+http://arduino.cc/en/Reference/RTC
+
 ## Source
 
 Source files available at:
