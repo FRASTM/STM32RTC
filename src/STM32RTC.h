@@ -85,8 +85,15 @@ class STM32RTC {
       PM = HOUR_PM
     };
 
+    enum Binary_Mode : uint8_t {
+      MODE_BCD = MODE_BINARY_NONE,
+      MODE_BIN = MODE_BINARY_ONLY,
+      MODE_MIX = MODE_BINARY_MIX
+    };
+
     enum Alarm_Match : uint8_t {
       MATCH_OFF          = OFF_MSK,                          // Never
+      MATCH_SUBSEC       = SUBSEC_MSK,                       // Every Subsecond
       MATCH_SS           = SS_MSK,                           // Every Minute
       MATCH_MMSS         = SS_MSK | MM_MSK,                  // Every Hour
       MATCH_HHMMSS       = SS_MSK | MM_MSK | HH_MSK,         // Every Day
@@ -125,8 +132,19 @@ class STM32RTC {
 
     void end(void);
 
+    // Could be used to mix Arduino API and STM32Cube HAL API (ex: DMA). Use at your own risk.
+    RTC_HandleTypeDef *getHandle(void)
+    {
+      return RTC_GetHandle();
+    }
+
     Source_Clock getClockSource(void);
-    void setClockSource(Source_Clock source);
+    void setClockSource(Source_Clock source, uint32_t predivA = (PREDIVA_MAX + 1), uint32_t predivS = (PREDIVS_MAX + 1));
+    void getPrediv(uint32_t *predivA, uint32_t *predivS);
+    void setPrediv(uint32_t predivA, uint32_t predivS);
+
+    Binary_Mode getBinaryMode(void);
+    void setBinaryMode(Binary_Mode mode);
 
     void enableAlarm(Alarm_Match match, Alarm name = ALARM_A);
     void disableAlarm(Alarm name = ALARM_A);
@@ -190,6 +208,7 @@ class STM32RTC {
     void setAlarmMinutes(uint8_t minutes, Alarm name = ALARM_A);
     void setAlarmHours(uint8_t hours, Alarm name);
     void setAlarmHours(uint8_t hours, AM_PM period = AM, Alarm name = ALARM_A);
+    void setAlarmTime(uint32_t subSeconds, Alarm name = ALARM_A);
     void setAlarmTime(uint8_t hours, uint8_t minutes, uint8_t seconds, Alarm name);
     void setAlarmTime(uint8_t hours, uint8_t minutes, uint8_t seconds, uint32_t subSeconds, Alarm name);
     void setAlarmTime(uint8_t hours, uint8_t minutes, uint8_t seconds, uint32_t subSeconds = 0, AM_PM period = AM, Alarm name = ALARM_A);
@@ -212,13 +231,6 @@ class STM32RTC {
     void setAlarmEpoch(time_t ts, Alarm_Match match, Alarm name);
     void setAlarmEpoch(time_t ts, Alarm_Match match = MATCH_DHHMMSS, uint32_t subSeconds = 0, Alarm name = ALARM_A);
 
-#if defined(STM32F1xx)
-    void getPrediv(uint32_t *predivA, int16_t *dummy = nullptr);
-    void setPrediv(uint32_t predivA, int16_t dummy = 0);
-#else
-    void getPrediv(int8_t *predivA, int16_t *predivS);
-    void setPrediv(int8_t predivA, int16_t predivS);
-#endif /* STM32F1xx */
     bool isConfigured(void)
     {
       return RTC_IsConfigured();
@@ -232,11 +244,15 @@ class STM32RTC {
     friend class STM32LowPower;
 
   private:
-    STM32RTC(void): _clockSource(LSI_CLOCK) {}
+    STM32RTC(void): _mode(MODE_BCD), _clockSource(LSI_CLOCK)
+    {
+      setClockSource(_clockSource);
+    }
 
     static bool _timeSet;
 
     Hour_Format _format;
+    Binary_Mode _mode;
     AM_PM       _hoursPeriod;
     uint8_t     _hours;
     uint8_t     _minutes;

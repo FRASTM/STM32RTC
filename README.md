@@ -31,11 +31,11 @@ _RTC hours mode (12 or 24)_
 
 _RTC clock source_
 * **`Source_Clock getClockSource(void)`** : get current clock source.
-* **`void setClockSource(Source_Clock source)`** : this function must be called before `begin()`.
+* **`void setClockSource(Source_Clock source, uint32_t predivA, uint32_t predivS)`** : set the clock source (`LSI_CLOCK`, `LSE_CLOCK` or `HSE_CLOCK`) and (a)synchronous prescaler values. This function must be called before `begin()`. Use `(PREDIVA_MAX + 1)` and `(PREDIVS_MAX +1)` to reset value and use computed ones. Those values have to match the following conditions: **_1Hz = RTC CLK source / ((predivA + 1) * (predivS + 1))_**
 
 _RTC Asynchronous and Synchronous prescaler_
-* **`void getPrediv(int8_t *predivA, int16_t *predivS)`** : get (a)synchronous prescaler values if set else computed ones for the current clock source.
-* **`void setPrediv(int8_t predivA, int16_t predivS)`** : set (a)synchronous prescaler values.  This function must be called before `begin()`. Use -1 to reset value and use computed ones. Those values have to match the following conditions: **_1Hz = RTC CLK source / ((predivA + 1) * (predivS + 1))_**
+* **`void getPrediv(uint32_t *predivA, uint32_t *predivS)`** : get (a)synchronous prescaler values if set else computed ones for the current clock source.
+* **`void setPrediv(uint32_t predivA, uint32_t predivS)`** : set (a)synchronous prescaler values.  This function must be called before `begin()`. Use `(PREDIVA_MAX + 1)` and `(PREDIVS_MAX +1)` to reset value and use computed ones. Those values have to match the following conditions: **_1Hz = RTC CLK source / ((predivA + 1) * (predivS + 1))_**
 
 _SubSeconds management_
 * **`uint32_t getSubSeconds(void)`**
@@ -152,6 +152,30 @@ It is possible to use it thanks all alarm API with an extra argument:
     rtc.setAlarmTime(hours, minutes, seconds + 5, 567, STM32RTC::ALARM_B);
     rtc.enableAlarm(rtc.MATCH_DHHMMSS, STM32RTC::ALARM_B);
 ```
+
+### Since STM32RTC version higher than 1.3.7
+_Get the RTC handle_
+
+* **`RTC_HandleTypeDef *RTC_GetHandle(void)`**
+
+_binary and mix modes_
+
+Some STM32 RTC have a binary mode with 32-bit free-running counter
+in addition to their BCD mode for calendar (for example stm32wl55).
+Combined with BCD this is the MIX mode. Only using the binary counter is the BIN mode.
+Three RTC functional modes are available:
+  - `STM32RTC::MODE_BCD`
+  - `STM32RTC::MODE_MIX`
+  - `STM32RTC::MODE_BIN`
+
+* **`Binary_Mode getBinaryMode(void);`**
+* **`void setBinaryMode(Binary_Mode mode);`**
+
+
+Any API using the Subsecond parameter is expressed in milliseconds
+whatever the RTC input clock. This parameter is [0..999] in MIX or BCD mode
+and [0..0xFFFFFFFF] in BIN mode. In this configuration, time and date registers
+are not used by the RTC.
 
 Refer to the Arduino RTC documentation for the other functions
 http://arduino.cc/en/Reference/RTC
